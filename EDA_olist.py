@@ -47,6 +47,15 @@ PROBLEMAS:
 A partir de que momento o atraso se torna um problema?
 TF-IDF
 
+Bigram
+Onde demora mais para ser entregue a ponto que isso se torne um problema
+Qual a faixa de preço mais atraente dependendo da região
+
+Estimativa de tempo de entrega
+
+Em que região está ocorrendo mais atraso
+
+NLP e Time Series
 
 """
 
@@ -61,11 +70,19 @@ import io
 import string
 import spacy
 from tqdm import tqdm
-from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import DBSCAN
+
+from unidecode import unidecode
+
+
 import matplotlib.pyplot as plt
 import plotly
 import plotly.express as px
+
+# sklearn
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import DBSCAN
+from sklearn.feature_extraction.text import CountVectorizer
+
 
 componentes_excluir = ['ner', 'textcat', 'lemmatizer', 'senter', 'sentencizer', 'tagger', 'entity_linker', 'parser', 'entity_ruler', 'textcat_multilabel']
 nlp = spacy.load("pt_core_news_sm", exclude=componentes_excluir)
@@ -94,7 +111,6 @@ for dataset_arquivo in datasets_arquivos:
 
 df_textos = pd.read_csv('./datasets/raw/olist_order_reviews_dataset.csv', encoding='utf-8')
 df_textos.dropna(subset=['review_comment_message'], inplace=True)
-df_textos.iloc[300]['review_comment_message']
 review_comment_message = df_textos['review_comment_message']
 
 
@@ -156,15 +172,13 @@ reviews = pd.read_csv('./datasets/processed/tratamento_stopwords.csv')
 df_reviews = pd.read_csv('./datasets/raw/olist_order_reviews_dataset.csv', dtype='str')
 
 
-
+#LIMPANDO DADOS
 reviews.rename(columns={'Unnamed: 0': 'INDEX_ORIGINAL'}, inplace=True)
 reviews.set_index('INDEX_ORIGINAL', inplace=True)
 reviews = reviews['DOCS'].str.lower()
 reviews.dropna(inplace=True)
-
 reviews = reviews.apply(lambda x: ' '.join(pd.Series(x.split(' ')).unique().tolist()))
-
-
+reviews = [unidecode(review) for review in reviews]
 
 #FILTRANDO REVIEWS
 reviews_index = reviews.index.tolist()
@@ -172,7 +186,7 @@ reviews_index = reviews.index.tolist()
 df_reviews = df_reviews.loc[reviews_index]
 
 
-
+#++++++++++++++++ aqui ta errado
 df_geo = df_geo.iloc[reviews_index]
 df_geo['geolocation_city'].unique()
 
@@ -189,8 +203,6 @@ labels = model.labels_
 pd.Series(list(labels)).unique()
 pd.Series(model.labels_).value_counts().loc[-1]
 lat_long.iloc[0]
-
-
 
 # KMEANS
 from sklearn.cluster import KMeans
@@ -217,37 +229,6 @@ coordenadas_ajustadas = kmeanModel.cluster_centers_
 centroides = sc.inverse_transform(coordenadas_ajustadas)
 
 
-
-
-# VISUALIZANDO GRÁFICO
-
-import plotly.graph_objects as go
-
-fig = go.Figure(data=go.Scattergeo(
-        lon = centroides[:, 1],
-        lat = centroides[:, 0],
-        #text = df['text'],
-        #mode = 'markers',
-        #marker_color = df['cnt'],
-        ))
-
-
-fig.update_layout(
-        title = 'Most trafficked US airports<br>(Hover for airport names)'
-    )
-
-fig.write_html("bairros.html")
-
-import geopandas as gpd
-
-import plotly.express as px
-px.set_mapbox_access_token(open(".mapbox_token").read())
-df = px.data.carshare()
-fig = px.scatter_mapbox(df, lat="centroid_lat", lon="centroid_lon",     color="peak_hour", size="car_hours",
-                  color_continuous_scale=px.colors.cyclical.IceFire, size_max=15, zoom=10)
-
-
-
 # TFIDF
 from sklearn.feature_extraction.text import TfidfVectorizer
 
@@ -257,7 +238,8 @@ def tfidf(reviews):
     X = vectorizer.fit_transform(reviews)
 
     termos = vectorizer.get_feature_names()
-    pontuacao = pd.DataFrame(X.mean(axis=0))
+
+    pontuacao = pd.DataFrame(X.sum(axis=0))
     pontuacao = pontuacao.transpose()
     pontuacao.columns = ['TFIDF']
     pontuacao = pontuacao['TFIDF'].tolist()
@@ -272,4 +254,39 @@ def tfidf(reviews):
 index_nota = df_reviews[df_reviews['review_score'] == '2'].index.tolist()
 reviews_nota = reviews.loc[index_nota]
 
-tfidf(reviews_nota)
+# BIGRAM COM PONTUAÇÃO
+
+vectorizer = CountVectorizer(ngram_range=(2, 3))
+X = vectorizer.fit_transform(reviews_nota)
+bigram = vectorizer.get_feature_names_out()
+pontuacao = X.sum(axis=0).tolist()
+pontuacao = pontuacao[0]
+
+df_bigram = pd.DataFrame({'BIGRAM': bigram, 'PONTUACAO': pontuacao})
+df_bigram.sort_values('PONTUACAO', ascending=False, inplace=True)
+
+
+# EM QUE MOMENTO A ENTREGA NO ATRASO PASSA A SER UM PROBLEMA
+
+
+df_orders = pd.read_csv('./datasets/raw/olist_orders_dataset.csv')
+
+
+df_order_reviews = df_reviews.merge(df_orders, on='order_id', how='left')
+
+df_order_reviews.iloc[0]
+
+
+# NOTA X TEMPO DE ENTREGA X TEMPO DA COMPRA
+# NOTA X TEMPO DE ENTREGA X TEMPO ESTIMADO
+
+df_order_reviews['order_delivered_customer_date'] = pd.to_datetime(df_order_reviews['order_delivered_customer_date'])
+df_order_reviews['order_purchase_timestamp'] = pd.to_datetime(df_order_reviews['order_purchase_timestamp'])
+
+df_order_reviews_delivered_dropna = df_order_reviews.dropna(subset=['order_delivered_customer_date'])
+df_order_reviews_delivered_dropna['order_purchase_timestamp'][0]
+tempo_compra_entrega = df_order_reviews_delivered_dropna['order_delivered_customer_date'] - df_order_reviews_delivered_dropna['order_purchase_timestamp']
+dias_entrega = tempo_compra_entrega.apply(lambda x: x.days)
+
+dias_entrega
+
