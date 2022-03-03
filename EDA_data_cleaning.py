@@ -57,6 +57,9 @@ Em que região está ocorrendo mais atraso
 
 NLP e Time Series
 
+Nossos produtos são diversos?
+
+
 """
 
 
@@ -73,19 +76,17 @@ from tqdm import tqdm
 
 from unidecode import unidecode
 
-
 import matplotlib.pyplot as plt
-import plotly
-import plotly.express as px
 
 # sklearn
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import DBSCAN
 from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.cluster import KMeans
 
 componentes_excluir = ['ner', 'textcat', 'lemmatizer', 'senter', 'sentencizer', 'tagger', 'entity_linker', 'parser', 'entity_ruler', 'textcat_multilabel']
 nlp = spacy.load("pt_core_news_sm", exclude=componentes_excluir)
-
 
 # EXPORTANDO FEATURES DE TODOS OS DATASETS
 datasets_arquivos = glob.glob('./datasets/raw/*.csv')
@@ -101,8 +102,6 @@ for dataset_arquivo in datasets_arquivos:
             encoding="utf-8") as f:  
         f.write(descricao_acc)
     f.close()
-    
-
 
 # -----> EXPLORANDO REVIEWS <-----
 
@@ -120,7 +119,6 @@ review_comment_message = review_comment_message.apply(lambda x: ''.join([letra f
 review_comment_message = review_comment_message.str.strip()
 review_comment_message = review_comment_message.str.replace('\n', ' ')
 review_comment_message = review_comment_message.str.lower()
-
 
 # ELIMINANDO STOPWORDS
 def tipo_tokens_permitidos(token: str, tipos_permitidos = ['PROPN', 'NOUN', 'VERB', 'ADJ', 'INTJ', 'ADV']):
@@ -157,6 +155,10 @@ for review in tqdm(review_comment_message_list):
 df_lista_stopwords_eliminados = pd.DataFrame({'DOCS': lista_stopwords_eliminados})
 df_lista_stopwords_eliminados.index = review_comment_message.index.tolist()
 df_lista_stopwords_eliminados.to_csv('tratamento_stopwords.csv')
+
+
+
+
 
 # -----> TFIDF COM GEOLOCALIZAÇÃO <-----
 
@@ -201,8 +203,7 @@ pd.Series(list(labels)).unique()
 pd.Series(model.labels_).value_counts().loc[-1]
 lat_long.iloc[0]
 
-# KMEANS
-from sklearn.cluster import KMeans
+# -----> KMEANS <-----
 
 # NÚMERO DE ZONAS ATÉ A QUANTIDADE DE BAIRROS EM SÃO PAULO
 distortions = []
@@ -224,10 +225,6 @@ kmeanModel.fit(X)
 
 coordenadas_ajustadas = kmeanModel.cluster_centers_
 centroides = sc.inverse_transform(coordenadas_ajustadas)
-
-
-# TFIDF
-from sklearn.feature_extraction.text import TfidfVectorizer
 
 def tfidf(reviews):
 
@@ -263,41 +260,7 @@ df_bigram = pd.DataFrame({'BIGRAM': bigram, 'PONTUACAO': pontuacao})
 df_bigram.sort_values('PONTUACAO', ascending=False, inplace=True)
 
 
-
-# -----> EM QUE MOMENTO A ENTREGA NO ATRASO PASSA A SER UM PROBLEMA <-----
-
-df_orders = pd.read_csv('./datasets/raw/olist_orders_dataset.csv')
-
-df_order_reviews = df_reviews.merge(df_orders, on='order_id', how='left')
-
-df_order_reviews['order_delivered_customer_date'] = pd.to_datetime(df_order_reviews['order_delivered_customer_date'])
-df_order_reviews['order_purchase_timestamp'] = pd.to_datetime(df_order_reviews['order_purchase_timestamp'])
-df_order_reviews['order_estimated_delivery_date'] = pd.to_datetime(df_order_reviews['order_estimated_delivery_date'])
-
-df_order_reviews_delivered_dropna = df_order_reviews.dropna(subset=['order_delivered_customer_date'])
-
-#RELACIONANDO COMPRA E ENTREGA
-tempo_compra_entrega = df_order_reviews_delivered_dropna['order_delivered_customer_date'] - df_order_reviews_delivered_dropna['order_purchase_timestamp']
-dias_entrega = tempo_compra_entrega.apply(lambda x: x.days)
-
-
-#RELACIONANDO TEMPO ESTIMADO
-tempo_compra_entrega = df_order_reviews_delivered_dropna['order_delivered_customer_date'] - df_order_reviews_delivered_dropna['order_estimated_delivery_date']
-dias_estimado = tempo_compra_entrega.apply(lambda x: x.days)
-
-
-review_score = df_order_reviews_delivered_dropna['review_score']
-review_score = review_score.astype('int')
-
-dias_entrega = dias_entrega.tolist()
-review_score = review_score.tolist()
-
-
-#DIAS ENTREGA
-np.corrcoef(dias_entrega, review_score)
-
-#DIAS ESTIMADO
-np.corrcoef(dias_estimado, review_score)
+df_bigram
 
 
 
@@ -306,59 +269,3 @@ np.corrcoef(dias_estimado, review_score)
 
 
 
-
-
-# -----> MERGE DATAFRAMES <-----
-
-
-
-df_geo = pd.read_csv('./datasets/raw/olist_geolocation_dataset.csv')
-df_customer = pd.read_csv('./datasets/raw/olist_customers_dataset.csv')
-df_orders = pd.read_csv('./datasets/raw/olist_orders_dataset.csv')
-df_items = pd.read_csv('./datasets/raw/olist_order_items_dataset.csv')
-df_reviews = pd.read_csv('./datasets/raw/olist_order_reviews_dataset.csv')
-
-df_reviews = df_reviews[['order_id', 'review_score']]
-
-df_geo.drop_duplicates(subset=['geolocation_zip_code_prefix'], inplace=True)
-
-df_geo.rename(columns={'geolocation_zip_code_prefix': 'zip_code_prefix'}, inplace=True)
-df_customer.rename(columns={'customer_zip_code_prefix': 'zip_code_prefix'}, inplace=True)
-
-df_merged = df_geo.merge(df_customer, on='zip_code_prefix', how='right')
-df_merged = df_merged[['geolocation_lat', 'geolocation_lng', 'customer_id']]
-
-df_merged.drop_duplicates(inplace=True)
-
-df_merged = df_merged.merge(df_orders, on='customer_id', how='right')
-df_merged = df_merged.merge(df_items, on='order_id', how='right')
-df_merged = df_merged.merge(df_reviews, on='order_id', how='right')
-
-df_merged.dropna(subset=['order_delivered_customer_date'], inplace=True)
-
-df_merged['order_delivered_customer_date'] = pd.to_datetime(df_merged['order_delivered_customer_date'])
-df_merged['order_purchase_timestamp'] = pd.to_datetime(df_merged['order_purchase_timestamp'])
-df_merged['order_estimated_delivery_date'] = pd.to_datetime(df_merged['order_estimated_delivery_date'])
-
-
-
-df_merged['tempo_entrega'] = df_merged['order_delivered_customer_date'] - df_merged['order_purchase_timestamp']
-df_merged['tempo_estimado_entrega'] = df_merged['order_estimated_delivery_date'] - df_merged['order_delivered_customer_date']
-
-
-df_merged['tempo_entrega'] = df_merged['tempo_entrega'].apply(lambda x: x.days)
-df_merged['tempo_estimado_entrega'] = df_merged['tempo_estimado_entrega'].apply(lambda x: x.days)
-
-
-
-df_merged_filtro = df_merged[['customer_id', 'geolocation_lat', 'geolocation_lng', 'price', 'freight_value', 'review_score', 'tempo_entrega', 'tempo_estimado_entrega']]
-
-
-df_merged_filtro_agrupado = \
-df_merged_filtro.groupby(['customer_id', 'geolocation_lat', 'geolocation_lng']) \
-                    .agg({'price': np.sum, 'freight_value':np.mean, 'review_score': np.mean, 'tempo_entrega': np.mean, 'tempo_estimado_entrega': np.mean})
-
-
-df_merged_filtro_agrupado.reset_index(inplace=True)
-
-df_merged_filtro_agrupado.to_csv('data_grouped.csv', index=False)
