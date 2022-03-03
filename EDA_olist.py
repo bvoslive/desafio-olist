@@ -83,10 +83,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import DBSCAN
 from sklearn.feature_extraction.text import CountVectorizer
 
-
 componentes_excluir = ['ner', 'textcat', 'lemmatizer', 'senter', 'sentencizer', 'tagger', 'entity_linker', 'parser', 'entity_ruler', 'textcat_multilabel']
 nlp = spacy.load("pt_core_news_sm", exclude=componentes_excluir)
-
 
 
 # EXPORTANDO FEATURES DE TODOS OS DATASETS
@@ -104,7 +102,6 @@ for dataset_arquivo in datasets_arquivos:
         f.write(descricao_acc)
     f.close()
     
-
 
 
 # -----> EXPLORANDO REVIEWS <-----
@@ -171,17 +168,19 @@ df_geo = pd.read_csv('./datasets/raw/olist_geolocation_dataset.csv')
 reviews = pd.read_csv('./datasets/processed/tratamento_stopwords.csv')
 df_reviews = pd.read_csv('./datasets/raw/olist_order_reviews_dataset.csv', dtype='str')
 
-
 #LIMPANDO DADOS
 reviews.rename(columns={'Unnamed: 0': 'INDEX_ORIGINAL'}, inplace=True)
 reviews.set_index('INDEX_ORIGINAL', inplace=True)
 reviews = reviews['DOCS'].str.lower()
 reviews.dropna(inplace=True)
-reviews = reviews.apply(lambda x: ' '.join(pd.Series(x.split(' ')).unique().tolist()))
-reviews = [unidecode(review) for review in reviews]
 
 #FILTRANDO REVIEWS
 reviews_index = reviews.index.tolist()
+
+#LIMPKPEZA 
+reviews = reviews.apply(lambda x: ' '.join(pd.Series(x.split(' ')).unique().tolist()))
+reviews = [unidecode(review) for review in reviews]
+
 
 df_reviews = df_reviews.loc[reviews_index]
 
@@ -191,9 +190,7 @@ df_geo = df_geo.iloc[reviews_index]
 df_geo['geolocation_city'].unique()
 
 lat_long = df_geo[['geolocation_lat', 'geolocation_lng']]
-
 sc = StandardScaler()
-
 X = sc.fit_transform(lat_long)
 
 #DBSCAN
@@ -266,27 +263,109 @@ df_bigram = pd.DataFrame({'BIGRAM': bigram, 'PONTUACAO': pontuacao})
 df_bigram.sort_values('PONTUACAO', ascending=False, inplace=True)
 
 
-# EM QUE MOMENTO A ENTREGA NO ATRASO PASSA A SER UM PROBLEMA
 
+# -----> EM QUE MOMENTO A ENTREGA NO ATRASO PASSA A SER UM PROBLEMA <-----
 
 df_orders = pd.read_csv('./datasets/raw/olist_orders_dataset.csv')
 
-
 df_order_reviews = df_reviews.merge(df_orders, on='order_id', how='left')
-
-df_order_reviews.iloc[0]
-
-
-# NOTA X TEMPO DE ENTREGA X TEMPO DA COMPRA
-# NOTA X TEMPO DE ENTREGA X TEMPO ESTIMADO
 
 df_order_reviews['order_delivered_customer_date'] = pd.to_datetime(df_order_reviews['order_delivered_customer_date'])
 df_order_reviews['order_purchase_timestamp'] = pd.to_datetime(df_order_reviews['order_purchase_timestamp'])
+df_order_reviews['order_estimated_delivery_date'] = pd.to_datetime(df_order_reviews['order_estimated_delivery_date'])
 
 df_order_reviews_delivered_dropna = df_order_reviews.dropna(subset=['order_delivered_customer_date'])
-df_order_reviews_delivered_dropna['order_purchase_timestamp'][0]
+
+#RELACIONANDO COMPRA E ENTREGA
 tempo_compra_entrega = df_order_reviews_delivered_dropna['order_delivered_customer_date'] - df_order_reviews_delivered_dropna['order_purchase_timestamp']
 dias_entrega = tempo_compra_entrega.apply(lambda x: x.days)
 
-dias_entrega
 
+#RELACIONANDO TEMPO ESTIMADO
+tempo_compra_entrega = df_order_reviews_delivered_dropna['order_delivered_customer_date'] - df_order_reviews_delivered_dropna['order_estimated_delivery_date']
+dias_estimado = tempo_compra_entrega.apply(lambda x: x.days)
+
+
+review_score = df_order_reviews_delivered_dropna['review_score']
+review_score = review_score.astype('int')
+
+dias_entrega = dias_entrega.tolist()
+review_score = review_score.tolist()
+
+
+#DIAS ENTREGA
+np.corrcoef(dias_entrega, review_score)
+
+#DIAS ESTIMADO
+np.corrcoef(dias_estimado, review_score)
+
+
+
+
+
+
+
+
+
+
+# -----> MERGE DATAFRAMES <-----
+
+
+
+df_geo = pd.read_csv('./datasets/raw/olist_geolocation_dataset.csv')
+df_customer = pd.read_csv('./datasets/raw/olist_customers_dataset.csv')
+df_orders = pd.read_csv('./datasets/raw/olist_orders_dataset.csv')
+df_items = pd.read_csv('./datasets/raw/olist_order_items_dataset.csv')
+df_reviews = pd.read_csv('./datasets/raw/olist_order_reviews_dataset.csv')
+
+df_reviews = df_reviews[['order_id', 'review_score']]
+
+df_geo.drop_duplicates(subset=['geolocation_zip_code_prefix'], inplace=True)
+
+df_geo.rename(columns={'geolocation_zip_code_prefix': 'zip_code_prefix'}, inplace=True)
+df_customer.rename(columns={'customer_zip_code_prefix': 'zip_code_prefix'}, inplace=True)
+
+df_merged = df_geo.merge(df_customer, on='zip_code_prefix', how='right')
+df_merged = df_merged[['geolocation_lat', 'geolocation_lng', 'customer_id']]
+
+df_merged.drop_duplicates(inplace=True)
+
+
+df_merged = df_merged.merge(df_orders, on='customer_id', how='right')
+df_merged = df_merged.merge(df_items, on='order_id', how='right')
+df_merged = df_merged.merge(df_reviews, on='order_id', how='right')
+
+
+
+df_merged.info()
+
+df_merged.dropna(subset=['order_delivered_customer_date'], inplace=True)
+df_merged
+
+
+
+df_merged['order_delivered_customer_date'] = pd.to_datetime(df_merged['order_delivered_customer_date'])
+df_merged['order_purchase_timestamp'] = pd.to_datetime(df_merged['order_purchase_timestamp'])
+df_merged['order_estimated_delivery_date'] = pd.to_datetime(df_merged['order_estimated_delivery_date'])
+
+
+
+df_merged['tempo_entrega'] = df_merged['order_delivered_customer_date'] - df_merged['order_purchase_timestamp']
+
+
+
+
+df_merged.iloc[0]
+
+df_merged
+
+df_merged.iloc[0]
+
+
+df_orders
+
+df_orders.iloc[0]
+
+
+
+df_merged
