@@ -1,5 +1,6 @@
 from unidecode import unidecode
 import pandas as pd
+import numpy as np
 
 # -----> IMPORTANDO E FILTRANDO DADOS <-----
 
@@ -16,11 +17,10 @@ reviews.dropna(inplace=True)
 #FILTRANDO REVIEWS
 reviews_index = reviews.index.tolist()
 
-#LIMPKPEZA 
+#LIMPEZA 
 reviews = reviews.apply(lambda x: ' '.join(pd.Series(x.split(' ')).unique().tolist()))
 reviews = [unidecode(review) for review in reviews]
 df_reviews = df_reviews.loc[reviews_index]
-
 
 # -----> EM QUE MOMENTO A ENTREGA NO ATRASO PASSA A SER UM PROBLEMA <-----
 
@@ -38,11 +38,9 @@ df_order_reviews_delivered_dropna = df_order_reviews.dropna(subset=['order_deliv
 tempo_compra_entrega = df_order_reviews_delivered_dropna['order_delivered_customer_date'] - df_order_reviews_delivered_dropna['order_purchase_timestamp']
 dias_entrega = tempo_compra_entrega.apply(lambda x: x.days)
 
-
 #RELACIONANDO TEMPO ESTIMADO
 tempo_compra_entrega = df_order_reviews_delivered_dropna['order_delivered_customer_date'] - df_order_reviews_delivered_dropna['order_estimated_delivery_date']
 dias_estimado = tempo_compra_entrega.apply(lambda x: x.days)
-
 
 review_score = df_order_reviews_delivered_dropna['review_score']
 review_score = review_score.astype('int')
